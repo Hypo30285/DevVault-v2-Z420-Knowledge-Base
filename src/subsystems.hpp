@@ -440,7 +440,7 @@ public:
         bool dry_run
     ) {
         // Low-priority background scheduling (nice 19) + single-instance flock
-        nice(19);
+        if (nice(19) == -1) {}
         int lock_fd = open("/tmp/devvault_night_classify.lock", O_CREAT | O_RDWR, 0666);
         if (lock_fd >= 0) {
             if (flock(lock_fd, LOCK_EX | LOCK_NB) != 0) {
@@ -694,6 +694,7 @@ public:
         db.set_owner_signal("workstation_hardware", "HP Z420 Workstation: Intel Xeon E5-2690 v1 (8C/16T Sandy Bridge AVX1; upgrading to Xeon E5-2697 v2 12C/24T Ivy Bridge), 64 GB ECC DDR3 RAM, GTX 1050 Ti 4GB VRAM, 2TB NVMe (/mnt/nvme_storage + 256GB swapfile), 8TB WD HDD (/mnt/storage_8tb_linux), 2TB Hitachi HDD (/mnt/hitachi_3AC60 protected cron/snapshots), 2x 2.5\" SATA SSDs in Top ODD Bay, DVD Drive in Middle ODD Bay (Audio CDs & data discs only; no video bloat), $35 HP 683870-001 3.5\" Carrier in Bottom ODD Bay.");
         db.set_owner_signal("storage_roadmap", "Stage 1: 2TB NVMe (Vectors/DB) + 8TB WD (Tom_Knowledge_Vault) + 2TB Hitachi (Untouched). Stage 2A: 2x 18TB Seagate Exos Mirror (18TB usable, powered via 4-pin Molex to 15-pin SATA adapter bypassing Pin 3 3.3V PWDIS). Stage 2B: Bring Exos #3+#4 online as 36TB Stripe -> copy from 18TB Mirror -> verify 100% SHA-256 accuracy -> attach Exos #1+#2 to mirror the 36TB Stripe (RAID 10). Stage 3 (at 66% / 24TB): Z420 Slot 4 Minisforum ENPBA/ESP4B -> Minisforum N5 Air AI NAS.");
         db.set_owner_signal("coding_preferences", "Compiled native C/C++/Rust/Go binaries only on HP Z420 (-O3 -s -march=sandybridge -mavx -msse4.2 -mno-avx2 -mno-fma -mno-f16c; switch to -march=ivybridge -mf16c after E5-2697 v2 install). Zero GPU VRAM for background daemons. Local-First RAG priority before web search.");
+        db.set_owner_signal("cloud_and_local_ai_stack", "Cloud Plan: Google Ultimate running Gemini Argon on High (Effort Level: High). Local Z420 Stack: Ornith 1.5 35B-A3B (APEX-I-QUALITY, 32K context via PolyStrata) + MiniCPM-V 4.6 vision classifier + DevVault v2.0 C++17 AVX 1.0 RAG.");
         db.set_owner_signal("road_schedule", "On the road 5 days/week; captures Gemini Mobile App chats & links via 'DevVault Road Inbox & Sources Watchlist' Google Doc synced with local SOURCES.md.");
 
         std::cout << "[devvault coding-sync] Indexed/updated " << indexed << " coding artifacts, transcripts & project files.\n";
