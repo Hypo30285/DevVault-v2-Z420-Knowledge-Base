@@ -149,8 +149,9 @@ public:
                     }
                     tool_output = oss.str();
                 } else if (tool_name == "devvault_road_sync") {
-                    CodingAndRoadSync::run_road_and_web_sync(db, sources_md_path, true);
-                    tool_output = "Completed Road-Warrior SOURCES.md + Google Docs + Web Mirror sync.";
+                    std::string sync_log;
+                    CodingAndRoadSync::run_road_and_web_sync(db, sources_md_path, true, &sync_log);
+                    tool_output = "Completed Road-Warrior SOURCES.md + Google Docs + Web Mirror sync:\n" + sync_log;
                 } else {
                     tool_output = "Unknown tool: " + tool_name;
                 }

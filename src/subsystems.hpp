@@ -701,12 +701,14 @@ public:
     }
 
     // Parse SOURCES.md, pull Google Docs via gdocs CLI, and mirror watched URLs
-    static int run_road_and_web_sync(DevVaultDb& db, const std::string& sources_md_path, bool mirror_web = true) {
+    static int run_road_and_web_sync(DevVaultDb& db, const std::string& sources_md_path, bool mirror_web = true, std::string* out_log = nullptr) {
         std::ifstream ifs(sources_md_path);
         if (!ifs) {
             std::cerr << "[road-sync] Could not open " << sources_md_path << "\n";
+            if (out_log) *out_log = "[road-sync] Could not open " + sources_md_path + "\n";
             return 1;
         }
+        std::ostringstream log_ss;
         std::string content((std::istreambuf_iterator<char>(ifs)), std::istreambuf_iterator<char>());
         db.upsert_item("DevVault Master Sources Watchlist (SOURCES.md)", "file://" + sources_md_path, "watchlist", "05_Computer_Programming_and_AI", content, static_cast<int64_t>(content.size()));
 
@@ -738,6 +740,7 @@ public:
                         std::string gdoc_txt = DocumentClassifier::extract_document_text(tmp_md, 64000);
                         if (gdoc_txt.size() > 20) {
                             db.upsert_item("Google Doc (" + doc_id.substr(0, 10) + ")", u, "google_doc", "05_Computer_Programming_and_AI", gdoc_txt, static_cast<int64_t>(gdoc_txt.size()));
+                            log_ss << "  [gdocs-sync] " << u << " (" << gdoc_txt.size() << " bytes)\n";
                             docs_synced++;
                         }
                     }
@@ -759,12 +762,17 @@ public:
                     std::string md_body = DocumentClassifier::strip_tags(raw_html).substr(0, 24000);
                     std::string diff_summary;
                     db.upsert_web_snapshot(u, title, md_body, diff_summary);
-                    std::cout << "  [web-mirror] " << u << " -> " << diff_summary << "\n";
+                    log_ss << "  [web-mirror] " << u << " -> " << diff_summary << "\n";
                     web_synced++;
                 }
             }
         }
-        std::cout << "[devvault road-sync] Synced " << docs_synced << " Google Docs and mirrored " << web_synced << " watched web pages.\n";
+        log_ss << "[devvault road-sync] Synced " << docs_synced << " Google Docs and mirrored " << web_synced << " watched web pages.\n";
+        if (out_log) {
+            *out_log = log_ss.str();
+        } else {
+            std::cout << log_ss.str();
+        }
         return 0;
     }
 
