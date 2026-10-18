@@ -1,0 +1,7 @@
+# Ignore runtime SQLite database files, WAL/SHM journals, and large local logs
+*.db
+*.db-wal
+*.db-shm
+*.log
+bin/
+web_cache/
