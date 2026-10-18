@@ -74,6 +74,15 @@ int main(int argc, char** argv) {
             }
             return StorageGuard::verify_array(src_dir, tgt_dir);
         }
+        if (cmd == "daemon") {
+            int port = 8089;
+            for (int i = 2; i < argc; ++i) {
+                if (std::string(argv[i]) == "--port" && i + 1 < argc) {
+                    port = std::atoi(argv[++i]);
+                }
+            }
+            return McpServer::run_daemon(db_path, sources_md, vault_root, port);
+        }
 
         DevVaultDb db(db_path);
 

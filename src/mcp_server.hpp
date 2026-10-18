@@ -1,5 +1,6 @@
 #pragma once
 #include <arpa/inet.h>
+#include <chrono>
 #include <cstring>
 #include <iomanip>
 #include <iostream>
@@ -7,6 +8,7 @@
 #include <sstream>
 #include <string>
 #include <sys/socket.h>
+#include <thread>
 #include <unistd.h>
 #include "db.hpp"
 #include "scrubber.hpp"
@@ -249,6 +251,134 @@ public:
             close(cfd);
         }
         close(srv_fd);
+        return 0;
+    }
+
+    // Idle-aware continuous background daemon: runs until Owner arrives home and inspects process
+    static int run_daemon(const std::string& db_path, const std::string& sources_md_path, const std::string& vault_root, int http_port = 8089) {
+        if (nice(19) == -1) {}
+        int lock_fd = open("/mnt/nvme_storage/devvault/daemon.lock", O_CREAT | O_RDWR, 0666);
+        if (lock_fd >= 0) {
+            if (flock(lock_fd, LOCK_EX | LOCK_NB) != 0) {
+                std::cerr << "[devvault daemon] Daemon is already running. Inspect /mnt/nvme_storage/devvault/daemon_status.txt\n";
+                close(lock_fd);
+                return 0;
+            }
+        }
+        {
+            std::ofstream pid_f("/mnt/nvme_storage/devvault/daemon.pid", std::ios::trunc);
+            if (pid_f) pid_f << getpid() << "\n";
+        }
+
+        // Launch HTTP RAG Gateway (:8089) on a detached worker thread with its own WAL connection
+        std::thread http_thread([db_path, http_port]() {
+            try {
+                DevVaultDb http_db(db_path);
+                run_http_gateway(http_db, http_port);
+            } catch (...) {}
+        });
+        http_thread.detach();
+
+        DevVaultDb db(db_path);
+        std::vector<std::string> roots = {
+            "/mnt/storage_8tb_linux/documents",
+            "/mnt/storage_8tb_linux/downloads",
+            "/mnt/storage_8tb_linux/Computer stuff",
+            "/mnt/storage_8tb_linux/music",
+            "/mnt/storage_8tb_linux/python_projects",
+            "/home/tom/Documents",
+            "/home/tom/Downloads",
+            "/mnt/win7_backup",
+            "/mnt/samsung_storage",
+            "/mnt/nvme_storage/ai_projects"
+        };
+
+        int cycle = 1;
+        int64_t total_new_session = 0;
+        bool system_fully_categorized = false;
+        std::string started_at = Scrubber::iso8601_now();
+
+        std::cout << "[devvault daemon] Started PID " << getpid() << " at " << started_at << "\n"
+                  << "  Status File : /mnt/nvme_storage/devvault/daemon_status.txt\n"
+                  << "  Daemon Log  : /mnt/nvme_storage/devvault/daemon.log\n"
+                  << "  HTTP Gateway: http://127.0.0.1:" << http_port << "\n" << std::flush;
+
+        while (true) {
+            // Check 1-min loadavg to ensure we only run during periods of inactivity / low load
+            double load_1m = 0.0;
+            {
+                std::ifstream lf("/proc/loadavg");
+                if (lf) lf >> load_1m;
+            }
+            if (load_1m > 6.5) {
+                std::ofstream logf("/mnt/nvme_storage/devvault/daemon.log", std::ios::app);
+                logf << "[" << Scrubber::iso8601_now() << "] Interactive load (" << load_1m
+                     << ") detected; yielding for 30s...\n";
+                std::this_thread::sleep_for(std::chrono::seconds(30));
+                continue;
+            }
+
+            std::string cycle_ts = Scrubber::iso8601_now();
+            CodingAndRoadSync::run_coding_sync(db);
+            std::string road_log;
+            CodingAndRoadSync::run_road_and_web_sync(db, sources_md_path, (cycle % 6 == 1), &road_log);
+
+            int newly_indexed = 0;
+            DocumentClassifier::run_night_classify(db, roots, vault_root, "symlink-vault", 1000, false, &newly_indexed);
+            total_new_session += newly_indexed;
+            system_fully_categorized = (newly_indexed == 0);
+
+            std::string gpu_telem = Scrubber::run_cmd(
+                "/usr/bin/nvidia-smi --query-gpu=name,temperature.gpu,utilization.gpu,memory.used,memory.total --format=csv,noheader 2>/dev/null",
+                512
+            );
+
+            // Write live Owner inspection dashboard to /mnt/nvme_storage/devvault/daemon_status.txt
+            {
+                std::ofstream sf("/mnt/nvme_storage/devvault/daemon_status.txt", std::ios::trunc);
+                sf << "================================================================================\n"
+                   << "  DEVVAULT v2.0 AUTONOMOUS BACKGROUND DAEMON — OWNER INSPECTION DASHBOARD\n"
+                   << "================================================================================\n"
+                   << "  Daemon PID          : " << getpid() << "\n"
+                   << "  Started At          : " << started_at << "\n"
+                   << "  Last Completed Pass : " << cycle_ts << " (Cycle #" << cycle << ")\n"
+                   << "  1-Min System Load   : " << std::fixed << std::setprecision(2) << load_1m << " (Idle-Aware Threshold: <= 6.50)\n"
+                   << "  Newly Indexed (Pass): " << newly_indexed << " files (Session Total: " << total_new_session << ")\n"
+                   << "  System State        : "
+                   << (system_fully_categorized
+                       ? "100% CATEGORIZED & UP TO DATE (Monitoring for new changes every 300s)"
+                       : "ACTIVELY CATEGORIZING SYSTEM IN BACKGROUND (Next batch in 15s)")
+                   << "\n"
+                   << "  GPU Telemetry       : " << Scrubber::trim(gpu_telem) << "\n"
+                   << StorageGuard::format_report(db);
+                auto cats = db.get_category_stats();
+                if (!cats.empty()) {
+                    sf << "  INDEXED KNOWLEDGE BASE CATEGORIES:\n";
+                    for (const auto& c : cats) {
+                        sf << "  • " << std::left << std::setw(38) << c.category
+                           << " : " << std::right << std::setw(6) << c.file_count << " items ("
+                           << std::fixed << std::setprecision(2) << (c.total_bytes / (1024.0 * 1024.0)) << " MiB)\n";
+                    }
+                    sf << "================================================================================\n";
+                }
+            }
+
+            // Append cycle summary to /mnt/nvme_storage/devvault/daemon.log
+            {
+                std::ofstream lf("/mnt/nvme_storage/devvault/daemon.log", std::ios::app);
+                lf << "[" << Scrubber::iso8601_now() << "] Cycle #" << cycle
+                   << " complete | newly_indexed=" << newly_indexed
+                   << " | session_total=" << total_new_session
+                   << " | total_items=" << db.count_table("knowledge_items")
+                   << " | total_chunks=" << db.count_table("chunks")
+                   << " | state=" << (system_fully_categorized ? "UP_TO_DATE" : "CATEGORIZING")
+                   << " | gpu=" << Scrubber::trim(gpu_telem) << "\n";
+            }
+
+            cycle++;
+            int sleep_sec = system_fully_categorized ? 300 : 15;
+            std::this_thread::sleep_for(std::chrono::seconds(sleep_sec));
+        }
         return 0;
     }
 

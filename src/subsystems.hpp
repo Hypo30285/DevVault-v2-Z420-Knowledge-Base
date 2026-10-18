@@ -437,7 +437,8 @@ public:
         const std::string& vault_root,
         const std::string& mode,
         int max_files,
-        bool dry_run
+        bool dry_run,
+        int* out_newly_indexed = nullptr
     ) {
         // Low-priority background scheduling (nice 19) + single-instance flock
         if (nice(19) == -1) {}
@@ -457,11 +458,13 @@ public:
         int processed = 0;
         int indexed_new = 0;
         int dedup_skipped = 0;
+        int vision_classified = 0;
+        const int max_vision_per_pass = 25;
         std::map<std::string, int> cat_counts;
         std::map<std::string, int> emergent_counter;
 
         std::cout << "[devvault night-classify] Starting scan (mode=" << mode
-                  << ", max_files=" << max_files << ", dry_run=" << (dry_run ? "true" : "false") << ")\n"
+                  << ", max_new_files=" << max_files << ", dry_run=" << (dry_run ? "true" : "false") << ")\n"
                   << "  Protected paths : /mnt/hitachi_3AC60/staging_cache, /mnt/hitachi_3AC60/system_snapshots\n"
                   << "  Target Vault    : " << vault_root << "\n";
 
@@ -487,8 +490,18 @@ public:
                 std::string sha = Sha256::hash_file(p.string(), 4 * 1024 * 1024); // Fast 4MB prefix + content SHA-256
                 if (sha.empty()) continue;
 
-                std::string text = extract_document_text(p);
+                std::string source_uri = "file://" + p.string();
+                if (!dry_run && db.is_up_to_date(source_uri, sha)) {
+                    dedup_skipped++;
+                    continue; // Already indexed with identical SHA-256; do not count toward max_files
+                }
+
+                bool allow_vision = (!dry_run && vision_classified < max_vision_per_pass && (ext == ".pdf" || is_image_ext(ext)));
+                std::string text = extract_document_text(p, 24000, allow_vision);
                 if (text.empty()) continue;
+                if (text.find("MiniCPM-V 4.6") != std::string::npos) {
+                    vision_classified++;
+                }
 
                 auto cr = classify(p, text, emergent_counter);
                 cat_counts[cr.category]++;
@@ -516,7 +529,7 @@ public:
                     db.record_file_ledger(p.string(), vault_link.string(), cr.category, cr.confidence, mode, sha, static_cast<int64_t>(fsize));
                     int64_t id = db.upsert_item(
                         p.filename().string(),
-                        "file://" + p.string(),
+                        source_uri,
                         "personal_doc",
                         cr.category,
                         "File: " + p.string() + "\nCategory: " + cr.category + "\n\n" + text,
@@ -527,15 +540,19 @@ public:
                     else dedup_skipped++;
                 }
 
-                if (max_files > 0 && processed >= max_files) break;
+                if (max_files > 0 && (dry_run ? processed : indexed_new) >= max_files) break;
             }
-            if (max_files > 0 && processed >= max_files) break;
+            if (max_files > 0 && (dry_run ? processed : indexed_new) >= max_files) break;
         }
 
-        std::cout << "[devvault night-classify] Completed pass: " << processed << " files classified ("
-                  << indexed_new << " newly embedded, " << dedup_skipped << " unchanged/deduplicated).\n";
+        std::cout << "[devvault night-classify] Completed pass: " << processed << " new files classified ("
+                  << indexed_new << " newly embedded, " << vision_classified << " via MiniCPM-V 4.6 vision, "
+                  << dedup_skipped << " unchanged/deduplicated skipped).\n";
         for (const auto& kv : cat_counts) {
             std::cout << "  • " << std::left << std::setw(36) << kv.first << " : " << kv.second << " files\n";
+        }
+        if (out_newly_indexed) {
+            *out_newly_indexed = indexed_new;
         }
         if (lock_fd >= 0) {
             flock(lock_fd, LOCK_UN);

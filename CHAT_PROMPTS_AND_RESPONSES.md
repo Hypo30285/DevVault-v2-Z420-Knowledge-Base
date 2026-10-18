@@ -145,4 +145,62 @@ Saved the mandatory **6-Part End-of-Day (EOD) Engineering Dossier Reporting Rule
 > `Upload project design notes and engineering report and source code to github . include prompts and responses from agent in separate file.`
 
 **Agent (`Antigravity`):**
-Prepared `README.md`, `IMPLEMENTATION_PLAN.md`, `ENGINEERING_REPORT.md`, `CHAT_PROMPTS_AND_RESPONSES.md`, `Makefile`, `AGENTS.md`, `SOURCES.md`, and `src/*`, committed to Git, and published to GitHub under `Hypo30285`.
+Prepared `README.md`, `IMPLEMENTATION_PLAN.md`, `ENGINEERING_REPORT.md`, `CHAT_PROMPTS_AND_RESPONSES.md`, `Makefile`, `AGENTS.md`, `SOURCES.md`, and `src/*`, committed to Git, and published to GitHub under `Hypo30285/DevVault-v2-Z420-Knowledge-Base` and `Hypo30285/tom_and_bailey_coding/tree/main/DevVault_v2`.
+
+---
+
+## Prompt 16
+**User (`Tom`):**
+> `Test Dev Vault`
+
+**Agent (`Antigravity`):**
+- Executed an end-to-end test suite across all `devvault` MCP tools (`devvault_storage_status`, `devvault_classify_status`, `devvault_search`, `devvault_road_sync`, `devvault_classify_image`) and CLI commands (`devvault search`, `devvault verify-array`).
+- **Hybrid RAG Search Latency:** Measured **`38.73 ms / query`** (`193.64 ms` across 5 queries over `18,970` FTS5 chunks & 384-dim `AVX 1.0` vectors).
+- **Stage 2B `verify-array` Cryptographic Test:** Verified `exit=0` on clean directory trees and `exit=2` (`[SHA-256 MISMATCH]`) on a 1-byte simulated corruption.
+- **Bug Fixed During Testing:** Fixed a JSON-RPC `stdio` output leak in `devvault_road_sync` (`src/subsystems.hpp` & `src/mcp_server.hpp`) and pushed the fix to GitHub.
+
+---
+
+## Prompt 17
+**User (`Tom`):**
+> `Cloud plan is now Google Ultimate and Gemini Argon on High`
+
+**Agent (`Antigravity`):**
+- Stored the **Google Ultimate** cloud plan and **Gemini Argon on High** (`Effort Level: High`) configuration in `devvault.db` (`item_id=3702`, `devvault://notes/4ddd248648ae82da`).
+- Added `cloud_and_local_ai_stack` to the owner profile (`devvault://owner/profile`) in `src/subsystems.hpp`, silenced the `-Wunused-result` warning on `nice(19)`, recompiled with `0` errors / `0` warnings, and pushed to GitHub.
+
+---
+
+## Prompt 18
+**User (`Tom`):**
+> `Compare DevVault code to LangChain RAG Go and Rust on github. simultaneously Execute DevVault in background while Owner is away for next 8 hours`
+> *(Updated instruction: `Deamon should run until Owner arrives home and inspects process. Process should run in background during periods of inactivity until entire system has been categorized and up to date. Compile and proceed`)*
+
+**Agent (`Antigravity`):**
+1. **Implemented & Launched Native Idle-Aware Background Daemon (`./bin/devvault daemon`, PID `221171`):**
+   - Added `McpServer::run_daemon()` in `src/mcp_server.hpp` and `daemon` subcommand in `src/main.cpp`.
+   - Runs at `nice 19`, checks `/proc/loadavg` (`<= 6.50` threshold) to yield during interactive load, serves the HTTP RAG Gateway on `127.0.0.1:8089`, and classifies `1,000` new files per cycle (plus up to 25 `MiniCPM-V 4.6` visual classifications per cycle) across `/mnt/storage_8tb_linux`, `/mnt/win7_backup`, `/mnt/samsung_storage`, `/mnt/nvme_storage/ai_projects`, and `/home/tom` while keeping `/mnt/hitachi_3AC60` 100% untouched.
+   - Within the first 6 cycles (`9 minutes`), the daemon classified **`6,000` new files**, expanding the RAG database from `3,700` to **`9,707` items** and **`36,788` FTS5 chunks & 384-dim `AVX 1.0` vectors** (`190.93 MiB` `devvault.db`, **`7,998` classified Vault files**).
+2. **Architectural & Code Comparison: `DevVault v2.0 (C++17)` vs. `LangChain Go (tmc/langchaingo)` vs. `LangChain Rust (Abraxas-365/langchain-rust)`:**
+
+| Dimension | **DevVault v2.0** (`Hypo30285/DevVault-v2-Z420-Knowledge-Base`) | **LangChain Go** (`tmc/langchaingo`) | **LangChain Rust** (`Abraxas-365/langchain-rust`) |
+| :--- | :--- | :--- | :--- |
+| **Language & Compiler Target** | **Native C++17** (`g++ -O3 -s -march=sandybridge -mavx -msse4.2 -mno-avx2 -mno-fma -mno-f16c` + `make ivybridge`) | **Go** (`go build`, garbage-collected runtime + goroutine scheduler) | **Rust** (`cargo build --release`, `tokio` async runtime + `250+` crate dependency tree) |
+| **Compiled Binary Size** | **`~225 KB`** stripped ELF binary (dynamically links system `libsqlite3.so.0` via `dlopen`) | **`25 MB – 45 MB`** static binary | **`15 MB – 30 MB`** binary (`tokio`, `reqwest`, `sqlx`, `serde`, `openssl`) |
+| **RAM & GC Overhead** | **`~8–14 MiB` RSS** deterministic stack/RAII memory; **0 GC pauses** | **`60–150+ MiB` RSS**; Go garbage collector scans heap slices during bulk chunk ingestion | **`20–50 MiB` RSS**; deterministic ownership, but heavy `tokio` async task/future boxing across trait boundaries |
+| **HP Z420 CPU ISA Safety (`Sandy Bridge` $\rightarrow$ `Ivy Bridge`)** | **100% Hardware-Tailored:** Hand-unrolled 256-bit `AVX 1.0` SIMD (`_mm256_loadu_ps`, `_mm256_mul_ps`, `_mm256_add_ps`) in `embed_avx.hpp`; strictly forbids `AVX2`/`FMA` (`SIGILL`-proof on Xeon E5-2690 v1) | Generic scalar Go `float32` loops unless calling external C/CGO libraries | Prebuilt native dependencies (`sqlite-vss`, `onnxruntime` / `fastembed`) frequently compile with `AVX2`/`FMA`, risking **`SIGILL` crashes** on Sandy Bridge / Ivy Bridge Xeons unless rebuilt from source |
+| **Embedding & GPU VRAM Footprint** | **`0 MiB` GPU VRAM** for text RAG (local deterministic 384-dim `AVX 1.0` feature-hashing embedder runs in `<0.2 ms` on CPU); reserves GPU VRAM exclusively for `Ornith 1.5 35B` and `MiniCPM-V 4.6` | Requires external HTTP round-trips to OpenAI, Ollama, or Vertex AI embedders (`llms/openai`, `llms/ollama`), competing for local GPU VRAM or cloud API quota | Relies on external HTTP embedders (`OpenAiEmbedder`, `OllamaEmbedder`) or local ONNX models (`fastembed`) that consume extra RAM/VRAM |
+| **Retrieval Algorithm** | **True Hybrid Search in One File:** Single NVMe SQLite WAL DB (`db.hpp`) fusing **SQLite FTS5 `BM25`** + **384-dim `AVX 1.0` Cosine Similarity** via **Reciprocal Rank Fusion (`RRF`, $k=60$)** in **`38.7 ms`** | `vectorstores.ToRetriever(store, k)` performs single-mode dense vector lookup by default; requires standing up an external server (`Qdrant`, `Milvus`, `pgvector`, `Chroma`) | `StoreBuilder` + `similarity_search!` macro targets external `Qdrant` / `Postgres (pgvector)` / `SurrealDB` or `sqlite-vss` (dense vector search without built-in FTS5 BM25 + RRF fusion) |
+| **Vision & Hardware Telemetry Integration** | **Built-in:** Native `MiniCPM-V 4.6` `448px` `/dev/shm` single-patch vision classifier (`vision_minicpm.hpp`), Dual-GPU Slot 2/Slot 5 topology detector, `statvfs` 66% Exos/NAS `StorageGuard`, and `verify-array` `SHA-256` RAID 10 verifier | None (pure LLM/chain wrapper library) | None (pure LLM/chain wrapper library) |
+| **Agent Integration Protocol** | **Built-in Native MCP Server (`stdio` JSON-RPC 2.0) + POSIX HTTP Gateway (`:8089`)** in `mcp_server.hpp` | Requires writing a separate MCP server or HTTP wrapper around `chains.RetrievalQA` | Requires writing a separate MCP server or `axum`/`actix-web` HTTP service around `Chain` traits |
+
+---
+
+## Prompt 19
+**User (`Tom`):**
+> `Send output from last prompt and responses including DevVault comparison to Bailey and Owner email. then run EOD script. run night_classify or whatever the new name of DevVault is`
+
+**Agent (`Antigravity`):**
+- Built and executed the automated **6-Part EOD Engineering Dossier Dispatch Script** (`eod_report.py`), emailing the latest prompt/response outputs, the **DevVault v2.0 C++17 vs. LangChain Go vs. LangChain Rust Comparison**, and the complete 6-part EOD Engineering Dossier to **Bailey** (`Bburnsed1995@gmail.com`) with CC to **Owner / Tom** (`supertruckertom@gmail.com`).
+- Verified `./bin/devvault daemon` (running continuous `night-classify` + `coding-sync` + `road-sync` in the background) is actively indexing the entire system.
+
